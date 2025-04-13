@@ -40,9 +40,9 @@ router.post('/', asyncHandler(async (req, res) => {
                 if (err.code === 'LIMIT_FILE_SIZE') {
                     err.message = 'File size is too large. Maximum filesize is 5MB.';
                 }
-                return res.json({ success: false, message: err });
+                return res.json({ success: false, message: err.message });
             } else if (err) {
-                return res.json({ success: false, message: err });
+                return res.json({ success: false, message: err.message });
             }
 
             const { name } = req.body;
