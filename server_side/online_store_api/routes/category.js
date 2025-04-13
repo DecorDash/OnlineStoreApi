@@ -76,63 +76,78 @@ router.post('/', asyncHandler(async (req, res) => {
 router.put('/:id', asyncHandler(async (req, res) => {
     const categoryID = req.params.id;
 
-    uploadCategory.single('img')(req, res, async function (err) {
-        if (err instanceof multer.MulterError) {
-            if (err.code === 'LIMIT_FILE_SIZE') {
-                err.message = 'File size is too large. Maximum filesize is 5MB.';
-            }
-            return res.json({ success: false, message: err.message });
-        } else if (err) {
-            return res.json({ success: false, message: err.message });
+    try {
+        // First find the existing category
+        const existingCategory = await Category.findById(categoryID);
+        if (!existingCategory) {
+            return res.status(404).json({ success: false, message: "Category not found." });
         }
 
-        // Log incoming request data to debug missing fields
-        console.log("Incoming Update Data: ", req.body);
-        console.log("Uploaded File: ", req.file);
-
-        const { name } = req.body;
-        let image = req.body.image; // Retain existing image if no new one is uploaded
-
-        // If a new image is uploaded, update the image URL
-        if (req.file) {
-            image = `https://decordash.onrender.com/image/category/${req.file.filename}`;
-        }
-
-        // If no name is provided, return error
-        if (!name) {
-            return res.status(400).json({ success: false, message: "Name is required." });
-        }
-
-        try {
-            const category = await Category.findById(categoryID);
-
-            if (!category) {
-                return res.status(404).json({ success: false, message: "Category not found." });
+        uploadCategory.single('img')(req, res, async function (err) {
+            if (err instanceof multer.MulterError) {
+                if (err.code === 'LIMIT_FILE_SIZE') {
+                    err.message = 'File size is too large. Maximum filesize is 5MB.';
+                }
+                return res.json({ success: false, message: err.message });
+            } else if (err) {
+                return res.json({ success: false, message: err.message });
             }
 
-            // If the image is updated, delete the old image from the server
-            if (req.file && category.image !== 'no_url') {
-                const oldImagePath = `./public${category.image}`;
-                fs.unlink(oldImagePath, (err) => {
-                    if (err) {
-                        console.error("Error deleting old image:", err);
+            // Get name from request body
+            const { name } = req.body;
+            
+            // If no name is provided, return error
+            if (!name) {
+                return res.status(400).json({ success: false, message: "Name is required." });
+            }
+
+            // Start with the existing image URL
+            let image = existingCategory.image;
+
+            // If a new image is uploaded, update the image URL
+            if (req.file) {
+                image = `https://decordash.onrender.com/image/category/${req.file.filename}`;
+                
+                // If there was an old image and it wasn't the default, try to delete it
+                if (existingCategory.image && existingCategory.image !== 'no_url') {
+                    try {
+                        // Extract the filename from the full URL path
+                        const oldFilename = existingCategory.image.split('/').pop();
+                        const oldImagePath = `./public/image/category/${oldFilename}`;
+                        
+                        fs.unlink(oldImagePath, (unlinkErr) => {
+                            if (unlinkErr) {
+                                console.error("Error deleting old image:", unlinkErr);
+                            }
+                        });
+                    } catch (deleteErr) {
+                        console.error("Error processing image deletion:", deleteErr);
                     }
-                });
+                }
             }
 
-            // Update category with the new image (if available) or keep the old image
-            const updatedCategory = await Category.findByIdAndUpdate(
-                categoryID,
-                { name: name, image: image },
-                { new: true }
-            );
+            try {
+                // Update category with new data
+                const updatedCategory = await Category.findByIdAndUpdate(
+                    categoryID,
+                    { name: name, image: image },
+                    { new: true }
+                );
 
-            res.json({ success: true, message: "Category updated successfully.", data: updatedCategory });
-        } catch (error) {
-            console.log("Error during category update:", error);
-            res.status(500).json({ success: false, message: error.message });
-        }
-    });
+                res.json({ 
+                    success: true, 
+                    message: "Category updated successfully.", 
+                    data: updatedCategory 
+                });
+            } catch (error) {
+                console.error("Error during category update:", error);
+                res.status(500).json({ success: false, message: error.message });
+            }
+        });
+    } catch (error) {
+        console.error("Error finding category:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 }));
 
 // Delete a category
@@ -158,13 +173,22 @@ router.delete('/:id', asyncHandler(async (req, res) => {
             return res.status(404).json({ success: false, message: "Category not found." });
         }
 
-        // Delete the category image from the server if it exists
-        const oldImagePath = `./public${category.image}`;
-        fs.unlink(oldImagePath, (err) => {
-            if (err) {
-                console.error("Error deleting old image:", err);
+        // Delete the category image from the server if it exists and isn't the default
+        if (category.image && category.image !== 'no_url') {
+            try {
+                // Extract the filename from the full URL path
+                const filename = category.image.split('/').pop();
+                const imagePath = `./public/image/category/${filename}`;
+                
+                fs.unlink(imagePath, (err) => {
+                    if (err) {
+                        console.error("Error deleting image file:", err);
+                    }
+                });
+            } catch (error) {
+                console.error("Error processing image deletion:", error);
             }
-        });
+        }
 
         res.json({ success: true, message: "Category deleted successfully." });
     } catch (error) {
