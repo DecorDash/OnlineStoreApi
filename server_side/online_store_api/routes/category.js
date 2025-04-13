@@ -87,14 +87,14 @@ router.put('/:id', asyncHandler(async (req, res) => {
             }
 
             const { name } = req.body;
-            let image = req.body.image;
+            let image = req.body.image; // We need this to keep the old image if no new image is uploaded
 
             if (req.file) {
                 image = `https://decordash.onrender.com/image/category/${req.file.filename}`;
             }
 
-            if (!name || !image) {
-                return res.status(400).json({ success: false, message: "Name and image are required." });
+            if (!name) {
+                return res.status(400).json({ success: false, message: "Name is required." });
             }
 
             try {
@@ -105,7 +105,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
                 }
 
                 // If a new image is provided, delete the old one from the server
-                if (req.file) {
+                if (req.file && category.image !== 'no_url') {
                     const oldImagePath = `./public${category.image}`;
                     fs.unlink(oldImagePath, (err) => {
                         if (err) {
@@ -114,7 +114,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
                     });
                 }
 
-                // Update category
+                // Update category with the new image or keep the old one
                 const updatedCategory = await Category.findByIdAndUpdate(
                     categoryID,
                     { name: name, image: image },
