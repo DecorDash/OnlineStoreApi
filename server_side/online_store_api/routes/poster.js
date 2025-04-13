@@ -76,7 +76,7 @@ router.post('/', asyncHandler(async (req, res) => {
 // Update a poster
 router.put('/:id', asyncHandler(async (req, res) => {
     try {
-        const categoryID = req.params.id;
+        const posterID = req.params.id;
         uploadPosters.single('img')(req, res, async function (err) {
             if (err instanceof multer.MulterError) {
                 if (err.code === 'LIMIT_FILE_SIZE') {
@@ -92,7 +92,6 @@ router.put('/:id', asyncHandler(async (req, res) => {
             const { posterName } = req.body;
             let image = req.body.image;
 
-
             if (req.file) {
                 image = `https://decordash.onrender.com/image/poster/${req.file.filename}`;
             }
@@ -102,7 +101,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
             }
 
             try {
-                const updatedPoster = await Poster.findByIdAndUpdate(categoryID, { posterName: posterName, imageUrl: image }, { new: true });
+                const updatedPoster = await Poster.findByIdAndUpdate(posterID, { posterName: posterName, imageUrl: image }, { new: true });
                 if (!updatedPoster) {
                     return res.status(404).json({ success: false, message: "Poster not found." });
                 }
