@@ -61,7 +61,7 @@ router.post('/', asyncHandler(async (req, res) => {
                     image: imageUrl
                 });
                 await newCategory.save();
-                res.json({ success: true, message: "Category created successfully.", data: newCategory });
+                res.json({ success: true, message: "Category created successfully.", data: null });
             } catch (error) {
                 console.error("Error creating category:", error);
                 res.status(500).json({ success: false, message: error.message });
@@ -72,89 +72,55 @@ router.post('/', asyncHandler(async (req, res) => {
     }
 }));
 
-// Update a category (with image update handling)
+// Update a category - SIMPLIFIED VERSION BASED ON WORKING POSTER.JS
 router.put('/:id', asyncHandler(async (req, res) => {
-    const categoryID = req.params.id;
-    
-    // First check if the category exists
     try {
-        const existingCategory = await Category.findById(categoryID);
-        if (!existingCategory) {
-            return res.status(404).json({ success: false, message: "Category not found." });
-        }
+        const categoryID = req.params.id;
         
-        // Process the update with multer
         uploadCategory.single('img')(req, res, async function (err) {
             if (err instanceof multer.MulterError) {
                 if (err.code === 'LIMIT_FILE_SIZE') {
-                    return res.status(400).json({ success: false, message: 'File size is too large. Maximum filesize is 5MB.' });
+                    err.message = 'File size is too large. Maximum filesize is 5MB.';
                 }
-                return res.status(400).json({ success: false, message: err.message });
+                console.log(`Update category: ${err.message}`);
+                return res.json({ success: false, message: err.message });
             } else if (err) {
-                return res.status(400).json({ success: false, message: err.message });
+                console.log(`Update category: ${err.message}`);
+                return res.json({ success: false, message: err.message });
             }
-            
-            // Debug logs
-            console.log("Request body:", req.body);
-            console.log("Request file:", req.file);
-            
-            // Get the name from request body
+
             const { name } = req.body;
-            
-            // If no name is provided, return error
+            let image = req.body.image; // Get the image from the request body
+
+            // Only update image if a new file is uploaded
+            if (req.file) {
+                image = `https://decordash.onrender.com/image/category/${req.file.filename}`;
+            }
+
             if (!name) {
                 return res.status(400).json({ success: false, message: "Name is required." });
             }
-            
-            // Keep the existing image by default
-            let imageUrl = existingCategory.image;
-            
-            // If a new file is uploaded, update the image URL
-            if (req.file) {
-                imageUrl = `https://decordash.onrender.com/image/category/${req.file.filename}`;
-                
-                // Delete old image if it's not the default 'no_url'
-                if (existingCategory.image !== 'no_url') {
-                    try {
-                        const oldFilename = existingCategory.image.split('/').pop();
-                        const oldImagePath = `./public/image/category/${oldFilename}`;
-                        
-                        fs.unlink(oldImagePath, (unlinkErr) => {
-                            if (unlinkErr) {
-                                console.error("Error deleting old image:", unlinkErr);
-                            }
-                        });
-                    } catch (error) {
-                        console.error("Error trying to delete old image:", error);
-                    }
-                }
-            }
-            
-            // Update the category in the database
+
             try {
                 const updatedCategory = await Category.findByIdAndUpdate(
-                    categoryID,
-                    { name: name, image: imageUrl },
-                    { new: true, runValidators: true }
+                    categoryID, 
+                    { name: name, image: image }, 
+                    { new: true }
                 );
                 
                 if (!updatedCategory) {
-                    return res.status(404).json({ success: false, message: "Category not found during update." });
+                    return res.status(404).json({ success: false, message: "Category not found." });
                 }
                 
-                return res.json({ 
-                    success: true, 
-                    message: "Category updated successfully.", 
-                    data: updatedCategory 
-                });
-            } catch (updateError) {
-                console.error("Error updating category:", updateError);
-                return res.status(500).json({ success: false, message: updateError.message });
+                res.json({ success: true, message: "Category updated successfully.", data: updatedCategory });
+            } catch (error) {
+                console.error("Update category error:", error);
+                res.status(500).json({ success: false, message: error.message });
             }
         });
-    } catch (error) {
-        console.error("Error finding category:", error);
-        return res.status(500).json({ success: false, message: error.message });
+    } catch (err) {
+        console.log(`Error updating category: ${err.message}`);
+        return res.status(500).json({ success: false, message: err.message });
     }
 }));
 
@@ -175,16 +141,13 @@ router.delete('/:id', asyncHandler(async (req, res) => {
             return res.status(400).json({ success: false, message: "Cannot delete category. Products are referencing it." });
         }
 
-        // Get the category to delete
-        const category = await Category.findById(categoryID);
+        // If no subcategories or products are referencing the category, proceed with deletion
+        const category = await Category.findByIdAndDelete(categoryID);
         if (!category) {
             return res.status(404).json({ success: false, message: "Category not found." });
         }
 
-        // Delete the category from the database
-        await Category.findByIdAndDelete(categoryID);
-
-        // Delete the category image if it exists and isn't the default
+        // Delete the category image from the server if it exists
         if (category.image && category.image !== 'no_url') {
             try {
                 const filename = category.image.split('/').pop();
