@@ -190,124 +190,154 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../model/product');
-const multer = require('multer');
-const { uploadProduct, uploadToSupabase } = require('../uploadFile');
 const asyncHandler = require('express-async-handler');
+const { uploadProduct, uploadToSupabase } = require('../uploadFile');
 
 // Get all products
 router.get('/', asyncHandler(async (req, res) => {
-    const products = await Product.find()
-        .populate('proCategoryId', 'id name')
-        .populate('proSubCategoryId', 'id name')
-        .populate('proBrandId', 'id name')
-        .populate('proVariantTypeId', 'id type')
-        .populate('proVariantId', 'id name');
-    res.json({ success: true, message: "Products retrieved successfully.", data: products });
+  const products = await Product.find()
+    .populate('proCategoryId', 'id name')
+    .populate('proSubCategoryId', 'id name')
+    .populate('proBrandId', 'id name')
+    .populate('proVariantTypeId', 'id type')
+    .populate('proVariantId', 'id name');
+
+  res.json({ success: true, message: "Products retrieved successfully.", data: products });
 }));
 
-// Get a product by ID
+// Get product by ID
 router.get('/:id', asyncHandler(async (req, res) => {
-    const product = await Product.findById(req.params.id)
-        .populate('proCategoryId', 'id name')
-        .populate('proSubCategoryId', 'id name')
-        .populate('proBrandId', 'id name')
-        .populate('proVariantTypeId', 'id name')
-        .populate('proVariantId', 'id name');
+  const product = await Product.findById(req.params.id)
+    .populate('proCategoryId', 'id name')
+    .populate('proSubCategoryId', 'id name')
+    .populate('proBrandId', 'id name')
+    .populate('proVariantTypeId', 'id name')
+    .populate('proVariantId', 'id name');
 
-    if (!product) {
-        return res.status(404).json({ success: false, message: "Product not found." });
-    }
-    res.json({ success: true, message: "Product retrieved successfully.", data: product });
+  if (!product) {
+    return res.status(404).json({ success: false, message: "Product not found." });
+  }
+
+  res.json({ success: true, message: "Product retrieved successfully.", data: product });
 }));
 
 // Create new product with Supabase image upload
 router.post('/', uploadProduct.fields([
-    { name: 'image1', maxCount: 1 },
-    { name: 'image2', maxCount: 1 },
-    { name: 'image3', maxCount: 1 },
-    { name: 'image4', maxCount: 1 },
-    { name: 'image5', maxCount: 1 }
+  { name: 'image1', maxCount: 1 },
+  { name: 'image2', maxCount: 1 },
+  { name: 'image3', maxCount: 1 },
+  { name: 'image4', maxCount: 1 },
+  { name: 'image5', maxCount: 1 }
 ]), asyncHandler(async (req, res) => {
-    const { name, description, quantity, price, offerPrice, proCategoryId, proSubCategoryId, proBrandId, proVariantTypeId, proVariantId } = req.body;
+  const {
+    name, description, quantity, price, offerPrice,
+    proCategoryId, proSubCategoryId, proBrandId,
+    proVariantTypeId, proVariantId
+  } = req.body;
 
-    if (!name || !quantity || !price || !proCategoryId || !proSubCategoryId) {
-        return res.status(400).json({ success: false, message: "Required fields are missing." });
+  if (!name || !quantity || !price || !proCategoryId || !proSubCategoryId) {
+    return res.status(400).json({ success: false, message: "Required fields are missing." });
+  }
+
+  const imageUrls = [];
+  const imageFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
+
+  for (let i = 0; i < imageFields.length; i++) {
+    const field = imageFields[i];
+    if (req.files[field] && req.files[field].length > 0) {
+      const file = req.files[field][0];
+      const filename = `products/${Date.now()}_${file.originalname}`;
+      try {
+        const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
+        imageUrls.push({ image: i + 1, url: publicUrl });
+      } catch (err) {
+        return res.status(500).json({ success: false, message: `Failed to upload ${field}: ` + err.message });
+      }
     }
+  }
 
-    const imageUrls = [];
-    const fields = ['image1', 'image2', 'image3', 'image4', 'image5'];
+  const newProduct = new Product({
+    name,
+    description,
+    quantity,
+    price,
+    offerPrice,
+    proCategoryId,
+    proSubCategoryId,
+    proBrandId,
+    proVariantTypeId,
+    proVariantId,
+    images: imageUrls
+  });
 
-    for (let i = 0; i < fields.length; i++) {
-        const field = fields[i];
-        if (req.files[field] && req.files[field].length > 0) {
-            const file = req.files[field][0];
-            const filename = `products/${Date.now()}_${file.originalname}`;
-            const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
-            imageUrls.push({ image: i + 1, url: publicUrl });
-        }
-    }
-
-    const newProduct = new Product({ name, description, quantity, price, offerPrice, proCategoryId, proSubCategoryId, proBrandId, proVariantTypeId, proVariantId, images: imageUrls });
-    await newProduct.save();
-    res.json({ success: true, message: "Product created successfully." });
+  await newProduct.save();
+  res.json({ success: true, message: "Product created successfully.", data: newProduct });
 }));
 
 // Update product
 router.put('/:id', uploadProduct.fields([
-    { name: 'image1', maxCount: 1 },
-    { name: 'image2', maxCount: 1 },
-    { name: 'image3', maxCount: 1 },
-    { name: 'image4', maxCount: 1 },
-    { name: 'image5', maxCount: 1 }
+  { name: 'image1', maxCount: 1 },
+  { name: 'image2', maxCount: 1 },
+  { name: 'image3', maxCount: 1 },
+  { name: 'image4', maxCount: 1 },
+  { name: 'image5', maxCount: 1 }
 ]), asyncHandler(async (req, res) => {
-    const productId = req.params.id;
-    const productToUpdate = await Product.findById(productId);
-    if (!productToUpdate) {
-        return res.status(404).json({ success: false, message: "Product not found." });
-    }
+  const productId = req.params.id;
+  const productToUpdate = await Product.findById(productId);
+  if (!productToUpdate) {
+    return res.status(404).json({ success: false, message: "Product not found." });
+  }
 
-    const { name, description, quantity, price, offerPrice, proCategoryId, proSubCategoryId, proBrandId, proVariantTypeId, proVariantId } = req.body;
+  const {
+    name, description, quantity, price, offerPrice,
+    proCategoryId, proSubCategoryId, proBrandId,
+    proVariantTypeId, proVariantId
+  } = req.body;
 
-    // Update basic fields
-    productToUpdate.name = name || productToUpdate.name;
-    productToUpdate.description = description || productToUpdate.description;
-    productToUpdate.quantity = quantity || productToUpdate.quantity;
-    productToUpdate.price = price || productToUpdate.price;
-    productToUpdate.offerPrice = offerPrice || productToUpdate.offerPrice;
-    productToUpdate.proCategoryId = proCategoryId || productToUpdate.proCategoryId;
-    productToUpdate.proSubCategoryId = proSubCategoryId || productToUpdate.proSubCategoryId;
-    productToUpdate.proBrandId = proBrandId || productToUpdate.proBrandId;
-    productToUpdate.proVariantTypeId = proVariantTypeId || productToUpdate.proVariantTypeId;
-    productToUpdate.proVariantId = proVariantId || productToUpdate.proVariantId;
+  // Update text fields
+  productToUpdate.name = name || productToUpdate.name;
+  productToUpdate.description = description || productToUpdate.description;
+  productToUpdate.quantity = quantity || productToUpdate.quantity;
+  productToUpdate.price = price || productToUpdate.price;
+  productToUpdate.offerPrice = offerPrice || productToUpdate.offerPrice;
+  productToUpdate.proCategoryId = proCategoryId || productToUpdate.proCategoryId;
+  productToUpdate.proSubCategoryId = proSubCategoryId || productToUpdate.proSubCategoryId;
+  productToUpdate.proBrandId = proBrandId || productToUpdate.proBrandId;
+  productToUpdate.proVariantTypeId = proVariantTypeId || productToUpdate.proVariantTypeId;
+  productToUpdate.proVariantId = proVariantId || productToUpdate.proVariantId;
 
-    const fields = ['image1', 'image2', 'image3', 'image4', 'image5'];
+  const imageFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
 
-    for (let i = 0; i < fields.length; i++) {
-        const field = fields[i];
-        if (req.files[field] && req.files[field].length > 0) {
-            const file = req.files[field][0];
-            const filename = `products/${Date.now()}_${file.originalname}`;
-            const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
-            const existing = productToUpdate.images.find(img => img.image === i + 1);
-            if (existing) {
-                existing.url = publicUrl;
-            } else {
-                productToUpdate.images.push({ image: i + 1, url: publicUrl });
-            }
+  for (let i = 0; i < imageFields.length; i++) {
+    const field = imageFields[i];
+    if (req.files[field] && req.files[field].length > 0) {
+      const file = req.files[field][0];
+      const filename = `products/${Date.now()}_${file.originalname}`;
+      try {
+        const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
+        const existing = productToUpdate.images.find(img => img.image === i + 1);
+        if (existing) {
+          existing.url = publicUrl;
+        } else {
+          productToUpdate.images.push({ image: i + 1, url: publicUrl });
         }
+      } catch (err) {
+        return res.status(500).json({ success: false, message: `Failed to upload ${field}: ` + err.message });
+      }
     }
+  }
 
-    await productToUpdate.save();
-    res.json({ success: true, message: "Product updated successfully." });
+  await productToUpdate.save();
+  res.json({ success: true, message: "Product updated successfully.", data: productToUpdate });
 }));
 
-// Delete a product
+// Delete product
 router.delete('/:id', asyncHandler(async (req, res) => {
-    const product = await Product.findByIdAndDelete(req.params.id);
-    if (!product) {
-        return res.status(404).json({ success: false, message: "Product not found." });
-    }
-    res.json({ success: true, message: "Product deleted successfully." });
+  const product = await Product.findByIdAndDelete(req.params.id);
+  if (!product) {
+    return res.status(404).json({ success: false, message: "Product not found." });
+  }
+  res.json({ success: true, message: "Product deleted successfully." });
 }));
 
 module.exports = router;
