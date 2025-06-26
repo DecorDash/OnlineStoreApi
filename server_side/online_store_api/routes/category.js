@@ -170,108 +170,92 @@
 // }));
 
 // module.exports = router;
+
+
 const express = require('express');
 const router = express.Router();
 const Category = require('../model/category');
 const SubCategory = require('../model/subCategory');
 const Product = require('../model/product');
-const multer = require('multer');
-const fs = require('fs');
 const asyncHandler = require('express-async-handler');
 
-const { uploadCategory, uploadToSupabase } = require('../uploadFile');
+const { handleCategoryUpload } = require('../uploadFile');
 
 // Get all categories
 router.get('/', asyncHandler(async (req, res) => {
-    const categories = await Category.find();
-    res.json({ success: true, message: "Categories retrieved successfully.", data: categories });
+  const categories = await Category.find();
+  res.json({ success: true, message: "Categories retrieved successfully.", data: categories });
 }));
 
 // Get a category by ID
 router.get('/:id', asyncHandler(async (req, res) => {
-    const category = await Category.findById(req.params.id);
-    if (!category) return res.status(404).json({ success: false, message: "Category not found." });
-    res.json({ success: true, message: "Category retrieved successfully.", data: category });
+  const category = await Category.findById(req.params.id);
+  if (!category) {
+    return res.status(404).json({ success: false, message: "Category not found." });
+  }
+  res.json({ success: true, message: "Category retrieved successfully.", data: category });
 }));
 
-// Create a new category with Supabase image upload
-router.post('/', asyncHandler(async (req, res) => {
-    uploadCategory.single('img')(req, res, async function (err) {
-        if (err instanceof multer.MulterError || err) {
-            const message = err.code === 'LIMIT_FILE_SIZE' ? 'File size is too large. Maximum filesize is 5MB.' : err.message;
-            return res.status(400).json({ success: false, message });
-        }
+// Create a new category
+router.post('/', handleCategoryUpload, asyncHandler(async (req, res) => {
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ success: false, message: "Name is required." });
+  }
 
-        const { name } = req.body;
-        if (!name) return res.status(400).json({ success: false, message: "Name is required." });
+  const imageUrl = req.imageUrl || 'no_url';
 
-        let imageUrl = 'no_url';
-        if (req.file) {
-            try {
-                const filename = `${Date.now()}_${req.file.originalname}`;
-                imageUrl = await uploadToSupabase(req.file.buffer, 'category', filename, req.file.mimetype);
-            } catch (uploadErr) {
-                return res.status(500).json({ success: false, message: "Image upload failed: " + uploadErr.message });
-            }
-        }
+  const newCategory = new Category({ name, image: imageUrl });
+  await newCategory.save();
 
-        const newCategory = new Category({ name, image: imageUrl });
-        await newCategory.save();
-
-        res.json({ success: true, message: "Category created successfully.", data: newCategory });
-    });
+  res.json({ success: true, message: "Category created successfully.", data: newCategory });
 }));
 
-// Update category with Supabase image upload
-router.put('/:id', asyncHandler(async (req, res) => {
-    uploadCategory.single('img')(req, res, async function (err) {
-        if (err instanceof multer.MulterError || err) {
-            const message = err.code === 'LIMIT_FILE_SIZE' ? 'File size is too large. Maximum filesize is 5MB.' : err.message;
-            return res.status(400).json({ success: false, message });
-        }
+// Update a category
+router.put('/:id', handleCategoryUpload, asyncHandler(async (req, res) => {
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ success: false, message: "Name is required." });
+  }
 
-        const { name } = req.body;
-        if (!name) return res.status(400).json({ success: false, message: "Name is required." });
+  let imageUrl = req.body.image; // fallback to existing image
+  if (req.imageUrl) imageUrl = req.imageUrl;
 
-        let imageUrl = req.body.image; // fallback to existing image
+  const updatedCategory = await Category.findByIdAndUpdate(
+    req.params.id,
+    { name, image: imageUrl },
+    { new: true }
+  );
 
-        if (req.file) {
-            try {
-                const filename = `${Date.now()}_${req.file.originalname}`;
-                imageUrl = await uploadToSupabase(req.file.buffer, 'category', filename, req.file.mimetype);
-            } catch (uploadErr) {
-                return res.status(500).json({ success: false, message: "Image upload failed: " + uploadErr.message });
-            }
-        }
+  if (!updatedCategory) {
+    return res.status(404).json({ success: false, message: "Category not found." });
+  }
 
-        const updatedCategory = await Category.findByIdAndUpdate(
-            req.params.id,
-            { name, image: imageUrl },
-            { new: true }
-        );
-
-        if (!updatedCategory) return res.status(404).json({ success: false, message: "Category not found." });
-
-        res.json({ success: true, message: "Category updated successfully.", data: updatedCategory });
-    });
+  res.json({ success: true, message: "Category updated successfully.", data: updatedCategory });
 }));
 
 // Delete a category
 router.delete('/:id', asyncHandler(async (req, res) => {
-    const categoryID = req.params.id;
+  const categoryID = req.params.id;
 
-    const subcategories = await SubCategory.find({ categoryId: categoryID });
-    if (subcategories.length > 0) return res.status(400).json({ success: false, message: "Cannot delete category. Subcategories are referencing it." });
+  const subcategories = await SubCategory.find({ categoryId: categoryID });
+  if (subcategories.length > 0) {
+    return res.status(400).json({ success: false, message: "Cannot delete category. Subcategories are referencing it." });
+  }
 
-    const products = await Product.find({ proCategoryId: categoryID });
-    if (products.length > 0) return res.status(400).json({ success: false, message: "Cannot delete category. Products are referencing it." });
+  const products = await Product.find({ proCategoryId: categoryID });
+  if (products.length > 0) {
+    return res.status(400).json({ success: false, message: "Cannot delete category. Products are referencing it." });
+  }
 
-    const category = await Category.findByIdAndDelete(categoryID);
-    if (!category) return res.status(404).json({ success: false, message: "Category not found." });
+  const category = await Category.findByIdAndDelete(categoryID);
+  if (!category) {
+    return res.status(404).json({ success: false, message: "Category not found." });
+  }
 
-    // Optionally, delete image from Supabase (not implemented here)
+  // Optional: delete Supabase image from storage if needed
 
-    res.json({ success: true, message: "Category deleted successfully." });
+  res.json({ success: true, message: "Category deleted successfully." });
 }));
 
 module.exports = router;
