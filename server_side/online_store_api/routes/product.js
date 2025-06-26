@@ -191,7 +191,7 @@ const express = require('express');
 const router = express.Router();
 const Product = require('../model/product');
 const asyncHandler = require('express-async-handler');
-const { uploadProduct, uploadToSupabase } = require('../uploadFile');
+const { handleProductUpload } = require('../uploadFile');
 
 // Get all products
 router.get('/', asyncHandler(async (req, res) => {
@@ -222,13 +222,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 }));
 
 // Create new product with Supabase image upload
-router.post('/', uploadProduct.fields([
-  { name: 'image1', maxCount: 1 },
-  { name: 'image2', maxCount: 1 },
-  { name: 'image3', maxCount: 1 },
-  { name: 'image4', maxCount: 1 },
-  { name: 'image5', maxCount: 1 }
-]), asyncHandler(async (req, res) => {
+router.post('/', handleProductUpload, asyncHandler(async (req, res) => {
   const {
     name, description, quantity, price, offerPrice,
     proCategoryId, proSubCategoryId, proBrandId,
@@ -239,22 +233,7 @@ router.post('/', uploadProduct.fields([
     return res.status(400).json({ success: false, message: "Required fields are missing." });
   }
 
-  const imageUrls = [];
-  const imageFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
-
-  for (let i = 0; i < imageFields.length; i++) {
-    const field = imageFields[i];
-    if (req.files[field] && req.files[field].length > 0) {
-      const file = req.files[field][0];
-      const filename = `products/${Date.now()}_${file.originalname}`;
-      try {
-        const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
-        imageUrls.push({ image: i + 1, url: publicUrl });
-      } catch (err) {
-        return res.status(500).json({ success: false, message: `Failed to upload ${field}: ` + err.message });
-      }
-    }
-  }
+  const imageUrls = req.productImages || [];
 
   const newProduct = new Product({
     name,
@@ -275,13 +254,7 @@ router.post('/', uploadProduct.fields([
 }));
 
 // Update product
-router.put('/:id', uploadProduct.fields([
-  { name: 'image1', maxCount: 1 },
-  { name: 'image2', maxCount: 1 },
-  { name: 'image3', maxCount: 1 },
-  { name: 'image4', maxCount: 1 },
-  { name: 'image5', maxCount: 1 }
-]), asyncHandler(async (req, res) => {
+router.put('/:id', handleProductUpload, asyncHandler(async (req, res) => {
   const productId = req.params.id;
   const productToUpdate = await Product.findById(productId);
   if (!productToUpdate) {
@@ -294,7 +267,7 @@ router.put('/:id', uploadProduct.fields([
     proVariantTypeId, proVariantId
   } = req.body;
 
-  // Update text fields
+  // Update basic fields
   productToUpdate.name = name || productToUpdate.name;
   productToUpdate.description = description || productToUpdate.description;
   productToUpdate.quantity = quantity || productToUpdate.quantity;
@@ -306,23 +279,14 @@ router.put('/:id', uploadProduct.fields([
   productToUpdate.proVariantTypeId = proVariantTypeId || productToUpdate.proVariantTypeId;
   productToUpdate.proVariantId = proVariantId || productToUpdate.proVariantId;
 
-  const imageFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
-
-  for (let i = 0; i < imageFields.length; i++) {
-    const field = imageFields[i];
-    if (req.files[field] && req.files[field].length > 0) {
-      const file = req.files[field][0];
-      const filename = `products/${Date.now()}_${file.originalname}`;
-      try {
-        const publicUrl = await uploadToSupabase(file.buffer, 'products', filename, file.mimetype);
-        const existing = productToUpdate.images.find(img => img.image === i + 1);
-        if (existing) {
-          existing.url = publicUrl;
-        } else {
-          productToUpdate.images.push({ image: i + 1, url: publicUrl });
-        }
-      } catch (err) {
-        return res.status(500).json({ success: false, message: `Failed to upload ${field}: ` + err.message });
+  // Update images if new ones were uploaded
+  if (req.productImages && req.productImages.length > 0) {
+    for (const img of req.productImages) {
+      const existing = productToUpdate.images.find(i => i.image === img.image);
+      if (existing) {
+        existing.url = img.url;
+      } else {
+        productToUpdate.images.push(img);
       }
     }
   }
