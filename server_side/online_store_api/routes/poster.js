@@ -133,78 +133,78 @@
 // }));
 
 // module.exports = router;
+
+
 const express = require('express');
 const router = express.Router();
 const Poster = require('../model/poster');
-const { uploadPosters, uploadToSupabase } = require('../uploadFile');
-const multer = require('multer');
 const asyncHandler = require('express-async-handler');
+
+const { handlePosterUpload } = require('../uploadFile');
 
 // Get all posters
 router.get('/', asyncHandler(async (req, res) => {
-    const posters = await Poster.find({});
-    res.json({ success: true, message: "Posters retrieved successfully.", data: posters });
+  const posters = await Poster.find({});
+  res.json({ success: true, message: "Posters retrieved successfully.", data: posters });
 }));
 
 // Get a poster by ID
 router.get('/:id', asyncHandler(async (req, res) => {
-    const poster = await Poster.findById(req.params.id);
-    if (!poster) return res.status(404).json({ success: false, message: "Poster not found." });
-    res.json({ success: true, message: "Poster retrieved successfully.", data: poster });
+  const poster = await Poster.findById(req.params.id);
+  if (!poster) {
+    return res.status(404).json({ success: false, message: "Poster not found." });
+  }
+  res.json({ success: true, message: "Poster retrieved successfully.", data: poster });
 }));
 
-// Create a new poster with Supabase image upload
-router.post('/', uploadPosters.single('img'), asyncHandler(async (req, res) => {
-    const { posterName } = req.body;
-    let imageUrl = 'no_url';
+// Create a new poster
+router.post('/', handlePosterUpload, asyncHandler(async (req, res) => {
+  const { posterName } = req.body;
+  if (!posterName) {
+    return res.status(400).json({ success: false, message: "Poster name is required." });
+  }
 
-    if (!posterName) return res.status(400).json({ success: false, message: "Poster name is required." });
+  const imageUrl = req.imageUrl || 'no_url';
 
-    try {
-        if (req.file) {
-            const filename = `poster/${Date.now()}_${req.file.originalname}`;
-            imageUrl = await uploadToSupabase(req.file.buffer, 'posters', filename, req.file.mimetype);
-        }
+  const newPoster = new Poster({ posterName, imageUrl });
+  await newPoster.save();
 
-        const newPoster = new Poster({ posterName, imageUrl });
-        await newPoster.save();
-
-        res.json({ success: true, message: "Poster created successfully." });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
+  res.json({ success: true, message: "Poster created successfully.", data: newPoster });
 }));
 
-// Update a poster with optional Supabase image upload
-router.put('/:id', uploadPosters.single('img'), asyncHandler(async (req, res) => {
-    const { posterName } = req.body;
-    const posterID = req.params.id;
+// Update a poster
+router.put('/:id', handlePosterUpload, asyncHandler(async (req, res) => {
+  const { posterName } = req.body;
+  const posterID = req.params.id;
 
-    if (!posterName) return res.status(400).json({ success: false, message: "Poster name is required." });
+  if (!posterName) {
+    return res.status(400).json({ success: false, message: "Poster name is required." });
+  }
 
-    let imageUrl = req.body.image;
+  let imageUrl = req.body.image;
+  if (req.imageUrl) imageUrl = req.imageUrl;
 
-    try {
-        if (req.file) {
-            const filename = `poster/${Date.now()}_${req.file.originalname}`;
-            imageUrl = await uploadToSupabase(req.file.buffer, 'posters', filename, req.file.mimetype);
-        }
+  const updatedPoster = await Poster.findByIdAndUpdate(
+    posterID,
+    { posterName, imageUrl },
+    { new: true }
+  );
 
-        const updatedPoster = await Poster.findByIdAndUpdate(posterID, { posterName, imageUrl }, { new: true });
+  if (!updatedPoster) {
+    return res.status(404).json({ success: false, message: "Poster not found." });
+  }
 
-        if (!updatedPoster) return res.status(404).json({ success: false, message: "Poster not found." });
-
-        res.json({ success: true, message: "Poster updated successfully." });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
+  res.json({ success: true, message: "Poster updated successfully.", data: updatedPoster });
 }));
 
 // Delete a poster
 router.delete('/:id', asyncHandler(async (req, res) => {
-    const deletedPoster = await Poster.findByIdAndDelete(req.params.id);
-    if (!deletedPoster) return res.status(404).json({ success: false, message: "Poster not found." });
-    res.json({ success: true, message: "Poster deleted successfully." });
+  const deletedPoster = await Poster.findByIdAndDelete(req.params.id);
+  if (!deletedPoster) {
+    return res.status(404).json({ success: false, message: "Poster not found." });
+  }
+
+  res.json({ success: true, message: "Poster deleted successfully." });
 }));
 
 module.exports = router;
