@@ -196,8 +196,7 @@ const { v4: uuidv4 } = require('uuid');
 const redis = require('../redis');
 const rateLimiter = require('../rateLimiter');
 const AuditLog = require('../model/auditLog');
-const { handleProductUpload } = require('../uploadFile');
-const cloudinary = require('cloudinary').v2;
+const { handleProductUpload, deleteImagesFromCloudinary } = require('../uploadFile');
 
 // Middleware to add request ID
 const addRequestId = (req, res, next) => {
@@ -270,19 +269,6 @@ function validate(validations) {
     });
   };
 }
-
-// Helper to delete images from Cloudinary
-const deleteImagesFromCloudinary = async (images) => {
-  const publicIds = images.map(img => img.publicId).filter(id => id);
-  
-  if (publicIds.length > 0) {
-    try {
-      await cloudinary.api.delete_resources(publicIds);
-    } catch (err) {
-      console.error('Cloudinary delete error:', err);
-    }
-  }
-};
 
 // Get all products with pagination, filtering, and sorting
 router.get('/',
@@ -551,13 +537,7 @@ router.post('/',
     }
 
     try {
-      // Map Cloudinary results to our image schema
-      const productImages = req.uploadedImages.map((img, index) => ({
-        image: index + 1,
-        url: img.secure_url,
-        publicId: img.public_id
-      }));
-
+      // Create product with images
       const newProduct = new Product({ 
         name,
         description,
@@ -569,7 +549,7 @@ router.post('/',
         proBrandId,
         proVariantTypeId,
         proVariantId,
-        images: productImages,
+        images: req.uploadedImages,
         sku,
         isFeatured: isFeatured || false,
         attributes
@@ -670,14 +650,13 @@ router.put('/:id',
       // Handle Cloudinary uploads if new images were uploaded
       if (req.uploadedImages && req.uploadedImages.length > 0) {
         // Map new images
-        const newImages = req.uploadedImages.map((img, index) => ({
-          image: index + 1,
-          url: img.secure_url,
-          publicId: img.public_id
-        }));
+        const newImages = req.uploadedImages;
         
         // Delete old images from Cloudinary
-        await deleteImagesFromCloudinary(currentProduct.images);
+        const publicIds = currentProduct.images.map(img => img.publicId).filter(id => id);
+        if (publicIds.length > 0) {
+          await deleteImagesFromCloudinary(publicIds);
+        }
         
         updateData.images = newImages;
       }
@@ -728,9 +707,9 @@ router.put('/:id',
           images: currentProduct.images.length
         },
         new: {
-          name: updateData.name,
-          price: updateData.price,
-          quantity: updateData.quantity,
+          name: updateData.name || currentProduct.name,
+          price: updateData.price !== undefined ? updateData.price : currentProduct.price,
+          quantity: updateData.quantity !== undefined ? updateData.quantity : currentProduct.quantity,
           images: updateData.images ? updateData.images.length : currentProduct.images.length
         }
       });
@@ -796,7 +775,10 @@ router.delete('/:id',
       }
       
       // Delete images from Cloudinary
-      await deleteImagesFromCloudinary(product.images);
+      const publicIds = product.images.map(img => img.publicId).filter(id => id);
+      if (publicIds.length > 0) {
+        await deleteImagesFromCloudinary(publicIds);
+      }
       
       // Delete from MongoDB
       await Product.findByIdAndDelete(productId);
