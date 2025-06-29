@@ -6,13 +6,18 @@ const orderSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  orderId: {
+    type: String,
+    unique: true,
+    default: () => `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+  },
   orderDate: {
     type: Date,
     default: Date.now
   },
   orderStatus: {
     type: String,
-    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
+    enum: ['pending', 'confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'return_requested', 'returned', 'refunded'],
     default: 'pending'
   },
   items: [
@@ -44,32 +49,44 @@ const orderSchema = new mongoose.Schema({
     required: true
   },
   shippingAddress: {
+    name: String,
     phone: String,
     street: String,
     city: String,
     state: String,
     postalCode: String,
-    country: String
+    country: {
+      type: String,
+      default: 'India'
+    }
   },
-
   paymentMethod: {
     type: String,
-    enum: ['cod', 'prepaid']
+    enum: ['cod', 'prepaid', 'wallet', 'card', 'upi', 'netbanking'],
+    required: true
   },
-
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'refunded'],
+    default: 'pending'
+  },
   couponCode: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Coupon'
-},
+  },
   orderTotal: {
     subtotal: Number,
     discount: Number,
     total: Number
   },
-  trackingUrl: {
-    type: String
+  trackingUrl: String,
+  deliveryPartnerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
-});
+  deliverySlot: Date,
+  cancellationReason: String
+}, { timestamps: true });
 
 const Order = mongoose.model('Order', orderSchema);
 
