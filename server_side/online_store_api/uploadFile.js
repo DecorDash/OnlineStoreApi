@@ -226,20 +226,22 @@
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { createClient } = require('@supabase/supabase-js');
+const cloudinary = require('cloudinary').v2;
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
 
 // Memory storage configuration
 const storage = multer.memoryStorage();
 
-// Enhanced file validation - checks both MIME type and extension
+// Enhanced file validation
 const fileFilter = (req, file, cb) => {
-  const allowedMimeTypes = ['image/jpeg', 'image/png'];
+  const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
   const allowedExtensions = ['.jpeg', '.jpg', '.png'];
   const ext = path.extname(file.originalname).toLowerCase();
   
@@ -258,31 +260,33 @@ const fileFilter = (req, file, cb) => {
 // File size limit (5MB)
 const limits = { fileSize: 5 * 1024 * 1024 };
 
-// Upload to Supabase with proper content type handling
-const uploadToSupabase = async (folder, file) => {
-  const ext = path.extname(file.originalname).toLowerCase();
-  const fileName = `${folder}/${uuidv4()}${ext}`;
-  
-  // Map extension to proper MIME type
-  const contentType = ext === '.png' ? 'image/png' : 
-                     ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 
-                     file.mimetype;
-  
-  console.log(`Uploading to Supabase: ${fileName} as ${contentType}`);
-  
-  const { error } = await supabase.storage
-    .from('decordash-images')
-    .upload(fileName, file.buffer, {
-      contentType: contentType,
-      cacheControl: '3600',
-      upsert: false
-    });
-
-  if (error) throw error;
-
-  return supabase.storage
-    .from('decordash-images')
-    .getPublicUrl(fileName).data.publicUrl;
+// Upload to Cloudinary
+const uploadToCloudinary = async (folder, file) => {
+  return new Promise((resolve, reject) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const publicId = `${folder}/${uuidv4()}`;
+    
+    // Convert buffer to data URI
+    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    
+    cloudinary.uploader.upload(
+      dataUri,
+      {
+        folder: `${process.env.CLOUDINARY_FOLDER}/${folder}`,
+        public_id: publicId,
+        overwrite: false,
+        resource_type: 'image'
+      },
+      (error, result) => {
+        if (error) {
+          console.error('Cloudinary upload error:', error);
+          reject(new Error('Failed to upload image to Cloudinary'));
+        } else {
+          resolve(result.secure_url);
+        }
+      }
+    );
+  });
 };
 
 // Middleware for category upload
@@ -293,7 +297,7 @@ const handleCategoryUpload = (req, res, next) => {
     if (!req.file) return next();
     
     try {
-      req.imageUrl = await uploadToSupabase('category', req.file);
+      req.imageUrl = await uploadToCloudinary('category', req.file);
       next();
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -309,7 +313,7 @@ const handlePosterUpload = (req, res, next) => {
     if (!req.file) return next();
     
     try {
-      req.imageUrl = await uploadToSupabase('poster', req.file);
+      req.imageUrl = await uploadToCloudinary('poster', req.file);
       next();
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -317,7 +321,7 @@ const handlePosterUpload = (req, res, next) => {
   });
 };
 
-// Middleware for product upload (handles multiple images)
+// Middleware for product upload
 const uploadProduct = multer({ storage, fileFilter, limits });
 const handleProductUpload = (req, res, next) => {
   uploadProduct.fields([
@@ -335,7 +339,7 @@ const handleProductUpload = (req, res, next) => {
       for (let i = 1; i <= 5; i++) {
         const field = `image${i}`;
         if (req.files[field]) {
-          const url = await uploadToSupabase('products', req.files[field][0]);
+          const url = await uploadToCloudinary('products', req.files[field][0]);
           req.productImages.push({ image: i, url });
         }
       }
