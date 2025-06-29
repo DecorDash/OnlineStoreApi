@@ -4,7 +4,9 @@ const couponSchema = new mongoose.Schema({
   couponCode: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
+    uppercase: true,
+    trim: true
   },
   discountType: {
     type: String,
@@ -13,20 +15,34 @@ const couponSchema = new mongoose.Schema({
   },
   discountAmount: {
     type: Number,
-    required: true
+    required: true,
+    min: 0.01
   },
   minimumPurchaseAmount: {
     type: Number,
-    required: true
+    required: true,
+    min: 0
   },
   endDate: {
     type: Date,
     required: true
   },
+  startDate: {
+    type: Date,
+    default: Date.now
+  },
   status: {
     type: String,
     enum: ['active', 'inactive'],
     default: 'active'
+  },
+  maxUses: {
+    type: Number,
+    default: null
+  },
+  currentUses: {
+    type: Number,
+    default: 0
   },
   applicableCategory: {
     type: mongoose.Schema.Types.ObjectId,
@@ -40,7 +56,16 @@ const couponSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product'
   }
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Add virtual for validity check
+couponSchema.virtual('isExpired').get(function() {
+  return this.endDate < new Date();
+});
 
 const Coupon = mongoose.model('Coupon', couponSchema);
 
