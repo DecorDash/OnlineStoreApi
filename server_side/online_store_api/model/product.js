@@ -66,11 +66,11 @@ const productSchema = new mongoose.Schema({
     },
     url: {
       type: String,
-      required: true,
-      validate: {
-        validator: v => /^https?:\/\/.+\..+/.test(v),
-        message: 'Invalid image URL format'
-      }
+      required: true
+    },
+    publicId: {
+      type: String,
+      required: true
     }
   }],
   sku: {
@@ -88,10 +88,18 @@ const productSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
-  attributes: mongoose.Schema.Types.Mixed // For dynamic properties
+  attributes: mongoose.Schema.Types.Mixed
 }, { 
   timestamps: true,
-  toJSON: { virtuals: true }
+  toJSON: { 
+    virtuals: true,
+    transform: function(doc, ret) {
+      // Remove internal fields
+      delete ret.__v;
+      delete ret._id;
+      return ret;
+    }
+  }
 });
 
 // Virtual for discount percentage
@@ -103,10 +111,60 @@ productSchema.virtual('discountPercentage').get(function() {
 });
 
 // Indexes for search and filtering
-productSchema.index({ name: 'text', description: 'text' });
+productSchema.index({ name: 'text', description: 'text', sku: 'text' }, {
+  weights: {
+    name: 10,
+    sku: 5,
+    description: 1
+  },
+  name: 'product_search_index'
+});
 productSchema.index({ price: 1 });
 productSchema.index({ offerPrice: 1 });
 productSchema.index({ popularity: -1 });
+productSchema.index({ isFeatured: 1 });
+productSchema.index({ createdAt: -1 });
+
+// Pre-save hook to generate SKU if not provided
+productSchema.pre('save', async function(next) {
+  if (!this.sku) {
+    try {
+      const category = await mongoose.model('Category').findById(this.proCategoryId);
+      const brand = await mongoose.model('Brand').findById(this.proBrandId);
+      
+      if (category && brand) {
+        const prefix = category.name.substring(0, 3).toUpperCase();
+        const brandCode = brand.name.substring(0, 3).toUpperCase();
+        const random = Math.floor(1000 + Math.random() * 9000);
+        this.sku = `${prefix}-${brandCode}-${random}`;
+      } else {
+        // Fallback if category or brand not found
+        const random = Math.floor(10000 + Math.random() * 90000);
+        this.sku = `PROD-${random}`;
+      }
+    } catch (error) {
+      // Generate random SKU if any error occurs
+      const random = Math.floor(10000 + Math.random() * 90000);
+      this.sku = `PROD-${random}`;
+    }
+  }
+  next();
+});
+
+// Pre-remove hook to delete images from Cloudinary
+productSchema.pre('remove', async function(next) {
+  try {
+    const publicIds = this.images.map(img => img.publicId).filter(id => id);
+    if (publicIds.length > 0) {
+      const cloudinary = require('cloudinary').v2;
+      await cloudinary.api.delete_resources(publicIds);
+    }
+    next();
+  } catch (error) {
+    console.error('Error deleting images from Cloudinary:', error);
+    next(error);
+  }
+});
 
 const Product = mongoose.model('Product', productSchema);
 
