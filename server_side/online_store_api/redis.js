@@ -1,21 +1,17 @@
 const redis = require('redis');
-const { promisify } = require('util');
 
+// Create Redis client
 const client = redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379',
-  socket: {
-    tls: process.env.NODE_ENV === 'production',
-    rejectUnauthorized: false
-  }
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
 });
 
 client.on('error', (err) => console.error('Redis Client Error', err));
 client.connect();
 
-// Promisify methods
-const getAsync = promisify(client.get).bind(client);
-const setExAsync = promisify(client.setEx).bind(client);
-const delAsync = promisify(client.del).bind(client);
+// Promisified methods
+const getAsync = (key) => client.get(key);
+const setExAsync = (key, ttl, value) => client.setEx(key, ttl, value);
+const delAsync = (key) => client.del(key);
 
 module.exports = {
   get: getAsync,
