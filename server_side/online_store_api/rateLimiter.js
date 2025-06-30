@@ -55,5 +55,7 @@ const adminLimiter = rateLimit({
 
 module.exports = {
   readLimiter,
-  writeLimiter
+  writeLimiter,
+  authLimiter,
+  adminLimiter
 };
